@@ -1,0 +1,37 @@
+model:
+  class_path: sota_zoo.pointgroup.PointGroup
+  init_args:
+    in_channels: 6
+    num_classes: 20
+    channels: [16, 32, 48, 64, 80, 96, 112]
+    block_repeat: 2
+
+data:
+  class_path: sota_zoo.pointgroup.datasets.ScanNetInst
+  init_args:
+    root_dir: datasets/ScanNetV2Inst
+
+trainer:
+  max_epochs: 384
+  accelerator: "gpu"
+  devices: 1
+
+  logger:
+    class_path: sota_zoo.utils.logger.WandbLogger
+    init_args:
+      project: PointGroup
+      name: pg_seg_debug
+      notes: "PointGroup Segmentation Branch"
+      tags: ["PGSeg", "debug"]
+      save_code: True
+      log_model: True
+  callbacks:
+    - class_path: RichProgressBar
+      init_args:
+        leave: True
+    - class_path: ModelCheckpoint
+      init_args:
+        save_last: True
+        every_n_epochs: 1
+
+seed_everything: 233
