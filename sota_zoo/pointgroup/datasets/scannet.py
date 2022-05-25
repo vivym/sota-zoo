@@ -123,7 +123,7 @@ def generate_inst_info(pc: PointCloud) -> PointCloud:
     instance_num_points = []
 
     for i in range(num_instances):
-        indices = np.where(pc.instance_labels == i)
+        indices = np.where(pc.instance_labels == i)[0]
 
         xyz_i = pc.points[indices, :3]
         min_i = xyz_i.min(0)
@@ -133,7 +133,7 @@ def generate_inst_info(pc: PointCloud) -> PointCloud:
         instance_regions[indices, 3:6] = min_i
         instance_regions[indices, 6:9] = max_i
 
-        instance_num_points.append(indices[0].shape[0])
+        instance_num_points.append(indices.shape[0])
 
     pc.num_instances = num_instances
     pc.instance_regions = instance_regions

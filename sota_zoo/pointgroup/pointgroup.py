@@ -8,6 +8,7 @@ import spconv.pytorch as spconv
 from spconv.pytorch.utils import gather_features_by_pc_voxel_id
 import pytorch_lightning as pl
 
+from sota_zoo.metrics.segmentation import pixel_accuracy, mean_iou
 from .unet import UNet, UBlock
 from .datasets.scannet import PointCloud
 
@@ -26,6 +27,7 @@ class PointGroup(pl.LightningModule):
         self.save_hyperparameters()
 
         self.in_channels = in_channels
+        self.num_classes = num_classes
 
         norm_fn = functools.partial(nn.BatchNorm1d, eps=1e-4, momentum=0.1)
 
@@ -101,7 +103,12 @@ class PointGroup(pl.LightningModule):
 
         return points, voxel_tensor, pc_voxel_id, sem_labels, instance_labels, instance_regions
 
-    def training_step(self, point_clouds: List[PointCloud], batch_idx: int):
+    def _training_or_validation_step(
+        self,
+        point_clouds: List[PointCloud],
+        batch_idx: int,
+        training: bool,
+    ):
         points, voxel_tensor, pc_voxel_id, sem_labels, instance_labels, instance_regions = self.collate(point_clouds)
 
         sem_logits, pt_offsets = self.forward(voxel_tensor, pc_voxel_id)
@@ -109,8 +116,10 @@ class PointGroup(pl.LightningModule):
         valid_mask = pc_voxel_id >= 0
         assert valid_mask.shape[0] == sem_logits.shape[0]
 
+        sem_logits = sem_logits[valid_mask]
+        sem_labels = sem_labels[valid_mask]
         loss_sem_seg = F.cross_entropy(
-            sem_logits[valid_mask], sem_labels[valid_mask], ignore_index=-100, reduction="mean"
+            sem_logits, sem_labels, ignore_index=-100, reduction="mean"
         )
 
         gt_offsets = instance_regions[:, :3] - points[:, :3]
@@ -128,13 +137,39 @@ class PointGroup(pl.LightningModule):
 
         loss = loss_sem_seg + loss_pt_offset_dist + loss_pt_offset_dir
 
-        self.log("train/total_loss", loss)
-        self.log("train/loss_sem_seg", loss_sem_seg)
-        self.log("train/loss_pt_offset_dist", loss_pt_offset_dist)
-        self.log("train/loss_pt_offset_dir", loss_pt_offset_dir)
+        prefix = "train" if training else "val"
+        batch_size = len(point_clouds)
+        self.log(f"{prefix}_loss", loss, batch_size=batch_size)
+        self.log(f"{prefix}/loss_sem_seg", loss_sem_seg, batch_size=batch_size)
+        self.log(f"{prefix}/loss_pt_offset_dist", loss_pt_offset_dist, batch_size=batch_size)
+        self.log(f"{prefix}/loss_pt_offset_dir", loss_pt_offset_dir, batch_size=batch_size)
+        self.log(f"{prefix}/pixel_acc", pixel_accuracy(sem_logits, sem_labels), batch_size=batch_size)
+        self.log(
+            f"{prefix}/mean_iou",
+            mean_iou(sem_logits, sem_labels, num_classes=self.num_classes),
+            batch_size=batch_size
+        )
+
+        return sem_logits, pt_offsets, loss
+
+    def training_step(self, point_clouds: List[PointCloud], batch_idx: int):
+        _, _, loss = self._training_or_validation_step(
+            point_clouds, batch_idx, training=True
+        )
 
         return loss
 
+    def validation_step(self, point_clouds: List[PointCloud], batch_idx: int):
+        sem_logits, pt_offsets, _ = self._training_or_validation_step(
+            point_clouds, batch_idx, training=False
+        )
+
+
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.Adam(
+            self.parameters(),
+            lr=self.learning_rate,
+            weight_decay=1e-4,
+            amsgrad=True,
+        )
         return optimizer

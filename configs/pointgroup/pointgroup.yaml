@@ -20,9 +20,9 @@ trainer:
     class_path: sota_zoo.utils.logger.WandbLogger
     init_args:
       project: PointGroup
-      name: pg_seg_debug
+      name: pg_seg_debug_metrics
       notes: "PointGroup Segmentation Branch"
-      tags: ["PGSeg", "debug"]
+      tags: ["PGSeg", "debug", "metrics"]
       save_code: True
       log_model: True
   callbacks:
@@ -32,6 +32,10 @@ trainer:
     - class_path: ModelCheckpoint
       init_args:
         save_last: True
+        save_top_k: 10
+        monitor: val_loss
         every_n_epochs: 1
+
+  default_root_dir: wandb
 
 seed_everything: 233
